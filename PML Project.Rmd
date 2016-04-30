@@ -1,0 +1,131 @@
+---
+title: "Practical Machine Learning Final Project"
+author: "Jonathan Zax"
+date: "April 29, 2016"
+output: html_document
+---
+## Executive Summary  
+This project in Practical Machine Learning will examine a dataset prepared for the paper *Qualitative Activity Recognition of Weight Lifting Exercises* by Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. in order to model the exercise technique (*classe* variable) used by study participants based upon an extensive series of accelerometer measurements and predict the *classe* for a small test set of measurements.  
+
+## Introduction  
+This project makes use of the Weight Lifting Exercise Dataset documented [here](http://groupware.les.inf.puc-rio.br/har), and available for download [here](http://groupware.les.inf.puc-rio.br/static/WLE/WearableComputing_weight_lifting_exercises_biceps_curl_variations.csv).  
+
+The data was collected using 4 on-body accelerometers with each of 6 participants, performing sets of the Unilateral Dumbbell Biceps Curl with 5 different techniques - 1 correct, and the remainder displaying idiosyncratic errors.  
+
+The project intends to use data from accelerometers on the belt, forearm, arm, and dumbell to predict the manner in which participants performed the exercise. The prediction model will then be used to predict 20 different test cases.  
+
+```{r loadingdata, echo = TRUE, cache = TRUE}
+## Read in the training and testing data files from the local working directory
+testing = read.csv("~/pml-testing.csv")
+training = read.csv("~/pml-training.csv")
+```
+
+The training dataset is comprised of `r dim(training)[[1]]` observations, each with `r dim(training)[[2]]` variables.  
+
+A number of libraries will be required for the model and are loaded now:  
+
+```{r loadlibraries, echo = TRUE, warning = FALSE, message = FALSE, cache = FALSE}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(gbm)
+library(randomForest)
+```
+
+## Data Processing  
+A random look at several variables reveals that there are identification and time fields that may not be relevant to the model, as well as a substantial presence of *NA* values and other variable characteristics that might benefit from some further data selection.  
+
+```{r viewdatasummary, echo = TRUE}
+summary(training[,c(5,20,25,37,69,87,103,141,158)])
+```
+
+The training and testing subsets are prepared from the original training data:
+
+```{r trainingsetprep, echo = TRUE, cache = TRUE}
+## Set the seed for reproducability
+set.seed(121199)
+
+## Create training and testing datasets from the training database
+inTrain = createDataPartition(training$classe, p=0.6, list = FALSE)
+train1 <- training[inTrain,]
+test1 <- training[-inTrain,]
+```
+
+The new training dataset, *train1*, is then refined to reduce the number of variables evaluated for the predictive models.  
+
+```{r variablereduction, echo = TRUE, cache = TRUE}
+## Clean the data
+## First removing the subject ID, time stamps and other initial record identifiers
+train1 <- train1[,-c(1:7)]
+
+## Identify and remove the variables with near-zero variance
+firstCut <- nzv(train1)
+train2 <- train1[,-firstCut]
+
+## Identify and remove the variables with greater than 75% NA values
+secondCut <- apply(train2, 2, function(x) sum(is.na(x)/length(x))<0.75)
+train3 <- train2[,secondCut]
+
+## Identify and remove highly correlated predictors (more than 90%), excluding the classe variable
+train3cor <- cor(train3[,-ncol(train3)])
+train3hc <- findCorrelation(train3cor, cutoff = .9)
+train3filt <- train3[,-train3hc]
+
+## Re-check that the new distribution has no highly correlated variables as expected
+train3cor2 <- cor(train3filt[,-ncol(train3filt)])
+summary(train3cor2[upper.tri(train3cor2)])
+```
+ 
+The processed training dataset has now been reduced to `r dim(train3filt)[[2]]` variables.  
+
+## Model Building  
+I first want to evaluate the performance of a Generalized Boosted Regression Model on this data set, using the default arguments.  
+
+````{r gbmmodel, echo = TRUE, cache = TRUE, message = FALSE}
+## Run a first model using caret with the GBM method
+modGBM <- train(classe~., data = train3filt, method="gbm", verbose = FALSE)
+
+## Estimate and plot the variable importance
+importGBM <- varImp(modGBM, scale=FALSE)
+plot(importGBM)
+````
+
+Running the GBM model on the *test1* dataset resuts in the following out-of-sample errors:  
+
+````{r gbmpredict, echo = TRUE, cache = TRUE}
+## Run the model on the test data
+predGBM <- predict(modGBM, newdata=test1)
+
+## Prepare a confusion matrix to get estimate of out-of-sample error
+confusionMatrix(test1$classe, predGBM)
+````
+
+The GBM method results in an accuracy rate of `r round(confusionMatrix(test1$classe, predGBM)$overall['Accuracy'],3)*100`% using the testing data.  
+
+I would like to explore the use of a Random Forest model as well, to see if the accuracy can be improved.  
+
+````{r rfmodel, echo = TRUE, cache = TRUE, message = FALSE}
+## Create an initial RF model
+modRF <- train(classe~., data = train3filt, method="rf")
+
+## Estimate and plot the variable importance
+importRF <- varImp(modRF, scale = FALSE)
+plot(importRF)
+````
+  
+Although it took quite a long time, the Random Forest model on the *test1* dataset results in better accuracy and fewer out-of-sample errors: 
+
+````{r rfpredict, echo = TRUE, cache = TRUE}
+## Run a prediction from the RF model
+predRF <- predict(modRF, newdata=test1)
+confusionMatrix(test1$classe, predRF)
+````
+
+The RF method results in an accuracy rate of `r round(confusionMatrix(test1$classe, predRF)$overall['Accuracy'],3)*100`% using the testing data.  
+
+With this level of accuracy, I'm prepared to run the original `r nrow(testing)`-observation *testing* set in order to predict the respective movement classe.
+
+````{r modeltesting, echo = TRUE, cache = TRUE}
+predtest <- predict(modRF, newdata = testing)
+predtest
+````

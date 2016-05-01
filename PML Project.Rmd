@@ -79,6 +79,8 @@ summary(train3cor2[upper.tri(train3cor2)])
 The processed training dataset has now been reduced to `r dim(train3filt)[[2]]` variables.  
 
 ## Model Building  
+### Generalized Boosted Regression Model  
+
 I first want to evaluate the performance of a Generalized Boosted Regression Model on this data set, using the default arguments.  
 
 ````{r gbmmodel, echo = TRUE, cache = TRUE, message = FALSE}
@@ -102,6 +104,8 @@ confusionMatrix(test1$classe, predGBM)
 
 The GBM method results in an accuracy rate of `r round(confusionMatrix(test1$classe, predGBM)$overall['Accuracy'],3)*100`% using the testing data.  
 
+### Random Forest Model  
+
 I would like to explore the use of a Random Forest model as well, to see if the accuracy can be improved.  
 
 ````{r rfmodel, echo = TRUE, cache = TRUE, message = FALSE}
@@ -113,7 +117,16 @@ importRF <- varImp(modRF, scale = FALSE)
 plot(importRF)
 ````
   
-Although it took quite a long time, the Random Forest model on the *test1* dataset results in better accuracy and fewer out-of-sample errors: 
+````{r rfresults, echo = TRUE, cache = TRUE}
+modRF$finalModel
+modRF$results
+````
+
+Although it took quite a long time, the Random Forest model on the *test1* dataset results in better accuracy and fewer out-of-sample errors.
+
+### Cross Validation
+
+The Random Forest Model can now be cross-validated on the withheld *test1* dataset, prior to its application to the final *testing* data.
 
 ````{r rfpredict, echo = TRUE, cache = TRUE}
 ## Run a prediction from the RF model
@@ -121,9 +134,15 @@ predRF <- predict(modRF, newdata=test1)
 confusionMatrix(test1$classe, predRF)
 ````
 
-The RF method results in an accuracy rate of `r round(confusionMatrix(test1$classe, predRF)$overall['Accuracy'],3)*100`% using the testing data.  
+The RF method results in an accuracy rate of `r round(confusionMatrix(test1$classe, predRF)$overall['Accuracy'],3)*100`% using the testing data. 
 
-With this level of accuracy, I'm prepared to run the original `r nrow(testing)`-observation *testing* set in order to predict the respective movement classe.
+````{r outofsamperror, echo = TRUE, cache = TRUE}
+oosErr <- sum(predRF != test1$classe)/length(test1$classe)
+````
+
+The out-of-sample error rate of `r round(oosErr, 3)` is within expectations for this model.  With this level of accuracy, I'm prepared to run the original `r nrow(testing)`-observation *testing* set in order to predict the respective movement classe.
+
+## Fimal Prediction  
 
 ````{r modeltesting, echo = TRUE, cache = TRUE}
 predtest <- predict(modRF, newdata = testing)
